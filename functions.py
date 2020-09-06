@@ -227,7 +227,7 @@ def  pfss_get_potl_coeffs (mag,rtop,quiet):
         rtop=np.double(rtop)
         phibt=-magt/(1+larr*(1+rtop**(-2*larr-1)))
         phiat=-phibt/(rtop**(2*larr+1))
-        wh=np.nonzero(np.isfinite(phiat) = 0)
+        wh=np.nonzero(np.isfinite(phiat) == 0)
         nwh = np.count_nonzero(wh)
         if nwh > 0:
             phiat[wh]=complex(0,0)
@@ -661,8 +661,6 @@ def  pfss_potl_field__AV (rtop,rgrid,rindex,thindex,phindex,lmax,trunc,potl,quie
             potl[:][:][i]=inv_spherical_transform(phibt*rix[i]**(-larr-1)+ phiat*rix[i]**larr,cth,lmax,None, None, None, None, None, None)
             
   
-
-
         
 def mean_dtheta (A, costheta):
     #preliminaries
@@ -722,15 +720,170 @@ def pfss_potl_field (rtop,rgrid,rindex,thindex,phindex,lmax,trunc,potl,quiet):
 
     cth = np.cos(theta)
     #get l and m index arrays of transform
+
+    phisiz=np.shape(phiat)
+    lix=np.arange(0,np.ndim(phiat))
+    mix=np.arange(0,phisiz[0])  
+    larr=lix * (np.repeat(1,phisiz[0]))[:, np.newaxis]
+    marr=np.repeat(1,np.ndim(phiat))* mix[:, np.newaxis]
+    wh=np.nonzero(marr > larr)
+    larr[wh]=0
+    marr[wh]=0
+
+    # get radial grid
+    dr0 =[np.pi/nlat0]  #r grid spacing at r=1, make it half avg lat grid spacing
+    rra=[np.float64(1e0),np.double(rtop[0])] #range of r
     
-    phisiz=size(phiat,/dim)
-    lix=lindgen(phisiz(0))
-    mix=lindgen(phisiz(1))
-    larr=lix#replicate(1,phisiz(1))
-    marr=replicate(1,phisiz(0))#mix
-    wh=where(marr gt larr)
-    larr(wh)=0  &  marr(wh)=0
+    if len(rgrid) == 0:
+        rgrid=1
+
+    def rgrid0():
+        rix=[rra[0]]
+        lastr=rra[0]
+
+        while True:
+            nextr=lastr+dr0*(lastr/rra[0])**2
+            rix=[rix][nextr]
+            lastr=nextr
+            if nextr >= rra[1]: break
+    
+        rix2=rix/((max(rix)-rra[0]))/(rra[1]-rra[0])
+        rix=rix2+(rra[0]-rix2[0])
+        nr=len(rix)
+        
+    def rgrid1():
+        if len(rindex) == 0:
+            print ('  ERROR in pfss_potl_field: rindex must be set if rgrid=3')
+            return
+        rix=rindex
+        nr=len(rindex)
+          
+    def default (): #radial gridpoints uniformly spaced
+        nr=round((rra[1]-rra[0])/dr0)
+        rix=np.linspace(rra[0],rra[1], nr)
     
     
+    case_rgrid = {
+    2 : rgrid0, #radial gridpoint separation is proportional to r^2
+    3 : rgrid1  #custom radial grid  
+    }
+
+    def rgrid_function(rgrid):
+        return case_rgrid.get(rgrid, default)()
+
+    if quiet is None:
+        print ('  pfss_potl_field: nr = '+str(nr))
+  
+
+    #set up theta grids
+    if len(thindex) > 0:
+        if max(thindex) > np.pi:
+            print ('  ERROR in pfss_potl_field: thindex out of range')
+            return
+        elif min(thindex)< 0.0:
+            print ('  ERROR in pfss_potl_field: thindex out of range')
+            return
+  
+        ntheta=len(thindex)
+        theta=thindex
+        nlat=ntheta
+        lat=90-theta*180/np.pi
+    else:
+        ntheta=nlat
+        thindex=theta
+
+
+    #set up phi grid
+    if len(phindex) > 0:
+        nphi=len(phindex)
+        phi=phindex
+        nlon=nphi
+        lon=phi*180/np.pi
+    else:
+        nphi=nlon
+        phindex=phi
+
+
+    #set up planar sin(theta) array
+
+    stharr=np.repeat(1,nphi)*(np.sqrt(1-(np.cos(thindex))**2))[:, np.newaxis]
+
+    #compute lmax for each radius
+    lmaxarr=np.zeros(nr,dtype=object)
     
+    if trunc is not None: #include fewer l modes as you get higher up
+        lmaxarr[0]=lmax
+        for i in range (1,nr):
+            wh=np.nonzero(rix[i]**np.arange(0,lmax+1) > 1e6)
+            nwh = np.count_nonzero(wh)
+            """ wh = (rix[i]**np.arange(0,lmax+1) > 1e6).nonzero()
+		wh = wh[0]
+		nwh = len(wh)"""
+            if nwh == 0:
+                lmaxarr[i]=lmax
+            else:
+                lmaxarr_0 = (wh[0]<lmax)
+                if lmaxarr_0 is True:
+                    lmaxarr[i] = wh[0]
+                else:
+                    lmaxarr[i] = lmax
+    else:
+        lmaxarr_1 = nlat0<lmax
+        if lmaxarr_1 is True:
+            lmaxarr[:] = nlat0
+        else:
+            lmaxarr[:] = lmax  #otherwise do nlat transforms for all radii
+
+    #compute Br in (r,l,m)-space
+    bt=np.zeros((phisiz,nr),dtype = complex)
+    for i in range (0,nr):
+        bt[:][:][i]= phiat*larr*rix[i]**(larr-1) - phibt*(larr+1)*rix[i]**(-larr-2)
+
+    # ...and then transform to (r,theta,phi)-space
+    br=np.zeros((nphi,ntheta,nr),dtype = float)
+    for i in range (0,nr):
+        if quiet is None:
+            pfss_print_time('pfss_potl_field: computing Br: ',i+1,nr,tst,slen, None)
+        br[:][:][i]=inv_spherical_transform(bt[:][:][i],cth,lmaxarr[i],None, None, None, None, thindex,phindex)/stharr
+    #compute sin(theta) * Bth in (r,l,m)-space...
+    factor=np.sqrt(np.double(larr**2-marr**2)/np.double(4*larr**2-1))
+
+    for i in range (0,nr):
+        br[:][:][i]=(larr-1)*factor*(np.roll(phiat,1,0)*rix[i]**(larr-2) + snp.roll(phibt,1,0)*rix[i]**(-larr-1))
+        - (larr+2)*np.roll(factor,-1,0)* (np.roll(phiat,-1,0)*rix[i]**larr + np.roll(phibt,-1,0)*rix[i]**(-larr-3))
+        bt[0][0][i]=-2*factor[1][0]*(phiat[1][0] + phibt(1,0)*rix[i]**(-3))
+        bt[lmax][:][i]=(lmax-1)*factor[lmax][:]*(phiat[lmax-1][:]*rix[i]**(lmax-2) + phibt[lmax-1][:]*rix[i]**(-lmax-1))
     
+    #...and then compute Bth in (r,theta,phi)-space
+    bth=np.zeros((nphi,ntheta,nr),dtype = float)
+    for i in range (0,nr):
+        if quiet is None:
+             pfss_print_time('  pfss_potl_field: computing Bth:  ',i+1,nr,tst,slen,None)
+             
+        bth[:][:][i]=inv_spherical_transform(bt[:][:][i],cth,lmaxarr[i],None, None, None, None, thindex,phindex)/stharr
+
+    #compute sin(theta) * Bph in (r,l,m)-space...
+    for i in range (0,nr):
+        bt[:][:][i]=np.complex(0,1)*marr*(phiat*rix[i]**(larr-1) + phibt*rix[i]**(-larr-2))
+
+    # ...and then compute Bph in (r,theta,phi)-space
+    bph=np.zeros((nphi,ntheta,nr),dtype = float)
+
+    for i in range (0,nr):
+        if quiet is None:
+             pfss_print_time('  pfss_potl_field: computing Bph:  ',i+1,nr,tst,slen,None)
+               
+        bph[:][:][i]=inv_spherical_transform(bt[:][:][i],cth,lmaxarr[i],None, None, None, None, thindex,phindex)/stharr
+
+     #now transform the field potential to (r,theta,phi)-space
+    if len(potl) > 0:
+        potl=np.zeros((nlon,nlat,nr),dtype = float)
+        for i in range (0,nr):
+            if quiet is None:
+                pfss_print_time('  pfss_potl_field: computing the field potential:  ',i+1,nr,tst,slen,None)
+
+            potl[:][:][i]=inv_spherical_transform(phibt*rix[i]**(-larr-1)+ phiat*rix[i]**larr,cth,lmax,None, None, None, None, None, None)
+            
+  
+
+

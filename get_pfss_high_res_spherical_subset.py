@@ -2,12 +2,10 @@ from astropy.io import fits
 import numpy as np
 import math
 import h5py
-import pfsspy
 import scipy
 from scipy.interpolate import griddata
 from scipy.interpolate import interp1d
 from scipy.interpolate import interp2d
-import matplotlib.pyplot as plt
 from functions import get_interpolation_index, gaussquad_legendre, spherical_transform, pfss_get_potl_coeffs,pfss_potl_field__AV 
 
 path='C:/Users/amaro/Desktop/Roksolanai/'
@@ -97,8 +95,14 @@ phi=lon*(math.pi/180)
 
 dlatinterp=get_interpolation_index(lat_global, lat)
 dloninterp=get_interpolation_index(lon_global, lon)
-#mags_interpolated = scipy.ndimage.map_coordinates(mag_global, [dlatinterp, dloninterp], order=1, mode='nearest')
 
+#IDL 'interpolate' function 
+#??????????????????????????????????????????????????????????????????
+###################################################################
+
+#mags_interpolated = scipy.interpolate.interpn(mag_global,dloninterp,dlatinterp,method='linear')
+
+#mags_interpolated = scipy.ndimage.map_coordinates(mag_global, [dlatinterp, dloninterp], order=1, mode='nearest')
 #xi,yi =np.meshgrid(dlatinterp,dloninterp)
 
 ###################################################################
@@ -115,7 +119,7 @@ dloninterp=get_interpolation_index(lon_global, lon)
 #mags_interpolated = griddata((dlatinterp,dloninterp), mag_global, (xi, yi), method='linear')
 #mags_interpolated = scipy.ndimage.interpolation.map_coordinates((dlatinterp,dloninterp), mag_global)
 #mags_interpolated = bilinear_interpolation( dlatinterp,dloninterp, mag_global.flatten())
-
+#??????????????????????????????????????????????????????????????????
 ###################################################################
 
 a_high_res_array = np.zeros( (no_high_res_pixels, no_high_res_pixels ))
@@ -200,12 +204,19 @@ b_high_res_interpolated = b_high_res_interpolated.flatten()
 
 ##########################################################################################
 
-#mags_improved = mags_interpolated
-#mags_improved[226 : 2464][1117 : 1340 ] = b_high_res_interpolated
+#interpolate???? mags_improved = mags_interpolated
+#interpolate???? mags_improved[226 : 2464][1117 : 1340 ] = b_high_res_interpolated
 
 #next get PFSS coefficients
+
 rss=1.6  #source surface radius
-#pfss_get_potl_coeffs( mags_improved, rss, None)
+
+#interpolate????  pfss_get_potl_coeffs( mags_improved, rss, None)
+
+with open(path+"/19990513/MDI_0000__PFSS_0004/pfss_data_block.sav", 'rb') as f:
+    phiat = np.load(f)
+    phibt = np.load(f)
+     
 
 phibt [0, 0] = complex(0, 0)
 
@@ -221,7 +232,8 @@ larr=lix*(np.repeat(1,phisiz[1]))[:, np.newaxis]
 marr=np.repeat(1,phisiz[0])*mix[:, np.newaxis]
 
 wh=np.nonzero(marr > larr)
-larr[wh]==0  &  marr[wh]==0
+larr[wh]=0
+marr[wh]=0
 
 max_z = 0.40 # max height expressed in Sun radius
 #d_r_coord_m = 100000.0 ; 100 [km] in [m]
